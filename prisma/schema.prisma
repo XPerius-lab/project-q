@@ -1,0 +1,280 @@
+// Project Q — Prisma schema
+// Datasource: Cloudflare D1 (SQLite dialect, accessed via @prisma/adapter-d1)
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL") // placeholder; real binding comes from D1 in Workers runtime
+}
+
+// ---------- ENUMS (SQLite has no native enum -> plain strings, validated in Zod) ----------
+// UserRole: "ADMIN" | "OWNER" | "CUSTOMER"
+// BookingStatus: "PENDING" | "CONFIRMED" | "CANCELLED" | "COMPLETED"
+// PaymentStatus: "PENDING" | "PAID" | "REFUNDED" | "FAILED"
+// CalendarDayStatus: "AVAILABLE" | "BOOKED" | "BLOCKED_BY_ADMIN" | "BLOCKED_BY_OWNER"
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  phone         String?
+  name          String
+  image         String?
+  role          String    @default("CUSTOMER") // ADMIN | OWNER | CUSTOMER
+  isBanned      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sessions      Session[]
+  accounts      Account[]
+  ownedVillas   Villa[]   @relation("VillaOwner")
+  bookings      Booking[] @relation("CustomerBookings")
+  reviews       Review[]
+  auditLogs     AuditLog[]
+
+  @@index([role])
+}
+
+// ---------- Better Auth çekirdek tabloları ----------
+// better-auth/adapters/prisma model/alan adları için sabit bir sözleşme
+// bekliyor (bkz. https://better-auth.com — "Prisma Adapter" şeması). Bunlar
+// elle yazılmadı/uydurulmadı; better-auth'un email+password akışı için
+// zorunlu minimum şema budur. Şifre burada DEĞİL, Account.password'de
+// tutuluyor (credential provider'ın better-auth'taki standart yeri) — bu
+// yüzden eski `User.passwordHash` alanı kaldırıldı, hiçbir yerde referans
+// edilmiyordu.
+model Session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?   // email+password akışında hash burada tutulur
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+}
+
+model Villa {
+  id              String    @id @default(cuid())
+  title           String
+  slug            String    @unique
+  description     String
+  category        String    @default("VILLA") // VILLA | DAILY_HOUSE | TINY_HOUSE | MOUNTAIN_HOUSE | CAMPSITE | CARAVAN | BOAT | EVENT_SPACE | STUDIO
+  ownerId         String
+  owner           User      @relation("VillaOwner", fields: [ownerId], references: [id])
+
+  city            String
+  region          String?
+  approxLat       Float
+  approxLng       Float
+
+  capacity        Int
+  bedrooms        Int
+  beds            Int
+  bathrooms       Int
+
+  basePrice       Float     // per-night base price, currency AZN
+  checkInTime     String    @default("14:00")
+  checkOutTime    String    @default("12:00")
+
+  rules           String?
+  isActive        Boolean   @default(true)
+  isFeatured      Boolean   @default(false) // "Editörün Seçimi" — Phase 2 badge system hook
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  photos          VillaPhoto[]
+  amenities       VillaAmenity[]
+  calendarDays    CalendarDay[]
+  bookings        Booking[]
+  reviews         Review[]
+
+  @@index([city])
+  @@index([ownerId])
+  @@index([category])
+}
+
+model VillaPhoto {
+  id        String   @id @default(cuid())
+  villaId   String
+  villa     Villa    @relation(fields: [villaId], references: [id], onDelete: Cascade)
+  url       String   // Cloudflare R2 object URL
+  order     Int      @default(0)
+  isCover   Boolean  @default(false)
+
+  @@index([villaId])
+}
+
+model VillaAmenity {
+  id       String  @id @default(cuid())
+  villaId  String
+  villa    Villa   @relation(fields: [villaId], references: [id], onDelete: Cascade)
+  key      String  // e.g. "pool", "wifi", "parking"
+  label    String
+
+  @@index([villaId])
+}
+
+// One row per villa per calendar date — this is what powers the screenshot-style calendar
+// and is the single source of truth that prevents double booking.
+model CalendarDay {
+  id        String   @id @default(cuid())
+  villaId   String
+  villa     Villa    @relation(fields: [villaId], references: [id], onDelete: Cascade)
+  date      DateTime // stored as date-only (UTC midnight)
+  status    String   @default("AVAILABLE") // AVAILABLE | BOOKED | BLOCKED_BY_ADMIN | BLOCKED_BY_OWNER
+  price     Float?   // override of basePrice for this date (fırsat/indirim/seasonal)
+  bookingId String?
+  booking   Booking? @relation(fields: [bookingId], references: [id])
+
+  // Hard double-booking guard at the DB level.
+  @@unique([villaId, date])
+  @@index([villaId, status])
+}
+
+model Booking {
+  id              String    @id @default(cuid())
+  villaId         String
+  villa           Villa     @relation(fields: [villaId], references: [id])
+  customerId      String
+  customer        User      @relation("CustomerBookings", fields: [customerId], references: [id])
+
+  checkIn         DateTime
+  checkOut        DateTime
+
+  nightsCount     Int
+  totalPrice      Float
+  commissionRate  Float     // snapshot of platform commission % at booking time
+  commissionAmount Float
+  ownerPayoutAmount Float
+
+  status          String    @default("PENDING") // PENDING | CONFIRMED | CANCELLED | COMPLETED
+  paymentStatus   String    @default("PENDING") // PENDING | PAID | REFUNDED | FAILED
+
+  checkInVerifiedAt   DateTime?
+  checkOutVerifiedAt  DateTime?
+
+  cancellationReason  String?
+  cancelledAt         DateTime?
+  refundAmount        Float?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  calendarDays    CalendarDay[]
+  review          Review?
+  payment         Payment?
+
+  @@index([villaId])
+  @@index([customerId])
+  @@index([status])
+}
+
+model Payment {
+  id            String   @id @default(cuid())
+  bookingId     String   @unique
+  booking       Booking  @relation(fields: [bookingId], references: [id])
+  provider      String   @default("PAYRIFF")
+  providerRef   String?  // Payriff transaction id, for idempotency + reconciliation
+  amount        Float
+  status        String   @default("PENDING") // PENDING | PAID | REFUNDED | FAILED
+  paidAt        DateTime?
+  createdAt     DateTime @default(now())
+
+  @@index([providerRef])
+}
+
+model Review {
+  id              String   @id @default(cuid())
+  bookingId       String   @unique
+  booking         Booking  @relation(fields: [bookingId], references: [id])
+  villaId         String
+  villa           Villa    @relation(fields: [villaId], references: [id])
+  customerId      String
+  customer        User     @relation(fields: [customerId], references: [id])
+
+  cleanliness     Int
+  pool            Int?
+  wifi            Int?
+  quietness       Int
+  photoAccuracy   Int
+  host            Int
+  overall         Int
+
+  comment         String?
+  ownerReply      String?
+
+  createdAt       DateTime @default(now())
+
+  @@index([villaId])
+}
+
+model Coupon {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  discountType  String   // PERCENTAGE | FIXED
+  discountValue Float
+  validFrom     DateTime
+  validUntil    DateTime
+  maxUses       Int?
+  usedCount     Int      @default(0)
+  isActive      Boolean  @default(true)
+}
+
+model PlatformSetting {
+  key       String   @id
+  value     String   // JSON-encoded; e.g. commissionRate, cancellationPenaltyRate
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  action     String
+  entityType String
+  entityId   String
+  metadata   String?  // JSON-encoded diff/context
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([entityType, entityId])
+}

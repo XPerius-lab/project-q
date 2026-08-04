@@ -1,0 +1,7 @@
+node_modules/
+.next/
+.vercel/
+.wrangler/
+*.db
+.env
+.env.local

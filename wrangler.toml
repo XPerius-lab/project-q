@@ -1,0 +1,17 @@
+name = "project-q"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = ".vercel/output/static"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "project-q-db"
+database_id = "REPLACE_WITH_REAL_D1_ID"
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "project-q-media"
+
+[vars]
+PLATFORM_COMMISSION_DEFAULT = "0.15"
+CANCELLATION_PENALTY_DEFAULT = "0.20"

@@ -1,0 +1,52 @@
+{
+  "name": "project-q",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:migrate:local": "wrangler d1 migrations apply project-q-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply project-q-db --remote",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:seed:admin": "tsx prisma/promote-admin.ts",
+    "pages:build": "npx @cloudflare/next-on-pages",
+    "pages:deploy": "npm run pages:build && wrangler pages deploy .vercel/output/static"
+  },
+  "dependencies": {
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.7.0",
+    "@prisma/client": "^6.2.0",
+    "@prisma/adapter-d1": "^6.2.0",
+    "prisma": "^6.2.0",
+    "better-auth": "^1.1.0",
+    "zod": "^3.24.0",
+    "react-hook-form": "^7.54.0",
+    "@hookform/resolvers": "^3.9.0",
+    "@tanstack/react-query": "^5.62.0",
+    "tailwind-merge": "^2.5.0",
+    "clsx": "^2.1.0",
+    "class-variance-authority": "^0.7.0",
+    "lucide-react": "^0.468.0",
+    "date-fns": "^4.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/next-on-pages": "^1.13.0",
+    "@cloudflare/workers-types": "^4.20250101.0",
+    "wrangler": "^3.99.0",
+    "tailwindcss": "^3.4.0",
+    "postcss": "^8.4.0",
+    "autoprefixer": "^10.4.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.17.0",
+    "eslint-config-next": "^15.1.0",
+    "tsx": "^4.19.0"
+  }
+}
