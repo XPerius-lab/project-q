@@ -60,7 +60,9 @@ export function VillaCalendar({ days, currency = "AZN" }: { days: CalendarDayVie
       <div className="grid gap-8 sm:grid-cols-2">
         {months.map(([monthKey, monthDays]) => {
           const [year, month] = monthKey.split("-").map(Number);
-          const blanks = leadingBlankCount(monthDays[0]);
+          const firstDay = monthDays[0];
+          if (!firstDay) return null;
+          const blanks = leadingBlankCount(firstDay);
 
           return (
             <div key={monthKey}>
